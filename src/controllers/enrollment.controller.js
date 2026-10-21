@@ -5,11 +5,11 @@ const enrollCourse = async (req, res) => {
     const enrollment = await enrollmentService.enrollCourse(
       req.user.id,
       req.params.courseId,
-      req.body.batchId
+      req.body?.batchId
     );
     res.status(201).json(enrollment);
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    res.status(err.statusCode || 400).json({ message: err.message });
   }
 };
 
@@ -26,11 +26,12 @@ const completeLesson = async (req, res) => {
   try {
     const data = await enrollmentService.completeLesson(
       req.params.enrollId,
-      req.body.lessonId
+      req.body?.lessonId,
+      req.user.id
     );
     res.json(data);
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    res.status(err.statusCode || 400).json({ message: err.message });
   }
 };
 
