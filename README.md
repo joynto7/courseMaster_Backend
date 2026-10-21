@@ -23,28 +23,45 @@ Pass: admin123
 
 ## Installation
 
-1. Clone the repository
-2. Navigate to the backend directory:
+Requirements: Node.js 18+ and a MongoDB database (local `mongod` 6/7 or MongoDB Atlas).
+
+1. Clone the repository and open the backend folder:
    ```bash
+   git clone <this-repo-url> courseMaster_Backend
    cd courseMaster_Backend
    ```
 
-3. Install dependencies:
+2. Install dependencies:
    ```bash
    npm install
    ```
 
-4. Create a `.env` file in the root directory (see `.env.example`)
+3. Create the `.env` file from the template and fill in `MONGODB_URI` and `JWT_SECRET`:
+   ```bash
+   cp .env.example .env
+   ```
 
-5. Start the development server:
+4. (Optional) Load demo data. **This deletes all existing data** in the database:
+   ```bash
+   npm run seed
+   ```
+   Demo accounts after seeding: `admin@coursemaster.com` / `admin123` (admin) and
+   `student@coursemaster.com` / `student123` (student).
+
+5. Start the development server (auto-restart) or the production server:
    ```bash
    npm run dev
-   ```
-
-6. Start the production server:
-   ```bash
    npm start
    ```
+
+6. Check that it works: `GET http://localhost:5000/` returns `Course Master Backend Running ✅`.
+
+> **macOS note:** port 5000 is used by the AirPlay Receiver. If requests to
+> `localhost:5000` return `403`, set another port (for example `PORT=5050`) and point the
+> frontend's `VITE_API_BASE_URL` at it.
+
+> **Existing databases:** quiz scores saved before the quiz-percentage fix (BUG-008) were
+> stored 10x too small. Run `npm run fix:quiz-percent` once to recompute them.
 
 ## Environment Variables
 
@@ -98,7 +115,7 @@ FRONTEND_URL=http://localhost:5173
 
 ## API Documentation
 
-Base URL: `http://localhost:5000/api/api`
+Base URL: `http://localhost:5000/api` (local) · deployed: `https://course-master-backend-ochre.vercel.app/api`
 
 ### Authentication Endpoints
 
@@ -399,6 +416,38 @@ The following fields are indexed for performance:
 ## Deployment
 
 The backend is deployed on **Vercel**. Make sure to set all environment variables in your deployment platform.
+
+## Bug Fixes (bug-bash assignment)
+
+The bug IDs match the bug report document (summary table, reproduction steps, evidence
+and verification for every issue). Backend issues fixed in this repository:
+
+| ID | Severity | Issue | Fix |
+|----|----------|-------|-----|
+| BUG-001 | Critical | Login always failed: password compared in plaintext with the bcrypt hash | `bcrypt.compare` |
+| BUG-004 | Critical | Invalid / expired JWTs were passed on (`next()`), causing 404/400 TypeErrors instead of 401 | 401 on verification failure |
+| BUG-005 | Critical | Enrolling always failed ("Already enrolled"), re-enrolling crashed with E11000 | fixed inverted condition |
+| BUG-008 | High | Quiz percentage multiplied by 10 instead of 100 | `* 100` + `npm run fix:quiz-percent` |
+| BUG-009 | High | `enrollment.save()` not awaited: unsaved progress returned, failed write crashed the server | `await` |
+| BUG-010 | High | Public course APIs exposed lesson videos, live links and quiz answer keys | content only for admins / enrolled students |
+| BUG-011 | High | Any student could update another student's progress or add fake lessons | owner + lesson checks |
+| BUG-012 | High | Bans, role demotions and deleted accounts did not affect existing tokens; banned users could log in | user loaded per request, 403 for banned |
+| BUG-017 | Medium | Invalid batch ids were not validated | batch must belong to the course |
+| BUG-018 | Medium | Search crashed on regex characters such as `(` | input escaped |
+| BUG-019 | Medium | Category / tag filters were case-sensitive exact matches | case-insensitive |
+| BUG-023 | Medium | Validation errors only said "Validation error" (Zod 4 has no `.errors`) | readable messages from `issues` |
+| BUG-024 | Medium | Admin registration key ignored; service trusted a client `role` | key verified, role never from body |
+| BUG-027 | Medium | `GET /api/admin/assignments?courseId=` ignored the filter | query passed, `course` field used |
+| BUG-028 | Medium | Deleting a course / user left orphaned enrollments and submissions | cascading deletes |
+| BUG-029 | Medium | Analytics chart missed today's enrollments when the server is not on UTC | UTC day buckets |
+| BUG-032 | Medium | `.env.example` contained frontend variables; README base URL was `/api/api` | template and docs fixed |
+| BUG-035 | Low | Invalid course ids returned raw Mongoose cast errors | 404 "Course not found" |
+| BUG-041 | Low | Admin review / course update and quiz submit accepted invalid input | validation added |
+| BUG-042 | Low | Auth header without the `Bearer` scheme was accepted | `Bearer` required |
+| BUG-043 | Low | Middleware overwrote `Access-Control-Allow-Methods` with `GET, POST` | middleware removed |
+
+Each fix was verified with an API check script (27 of 32 checks fail on the original code,
+34/34 pass after the fixes) and in the browser together with the fixed frontend.
 
 ## Development
 
