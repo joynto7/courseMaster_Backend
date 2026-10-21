@@ -1,8 +1,18 @@
 // service to handle course-related operations
 
+const { isValidObjectId } = require("mongoose");
 const Course = require("../models/Course");
+const Enrollment = require("../models/Enrollment");
+const httpError = require("../utils/httpError");
 
-const getCourses = async (query) => {
+// lesson fields that only admins and enrolled students may receive
+const PROTECTED_LESSON_FIELDS = ["videoUrl", "liveClassLink", "liveClassDate", "assignmentPrompt", "quiz"];
+const PUBLIC_COURSE_PROJECTION = PROTECTED_LESSON_FIELDS.map((f) => `-syllabus.lessons.${f}`).join(" ");
+
+// treat user input as literal text inside a regular expression
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const getCourses = async (query, viewer) => {
   const {
     page = 1,
     limit = 8,
@@ -18,21 +28,22 @@ const getCourses = async (query) => {
 
   const filter = {};
 
-  if (search && typeof search === "string") {
+  if (search && typeof search === "string" && search.trim()) {
+    const pattern = escapeRegex(search.trim());
     filter.$or = [
-      { title: { $regex: search, $options: "i" } },
-      { instructorName: { $regex: search, $options: "i" } },
+      { title: { $regex: pattern, $options: "i" } },
+      { instructorName: { $regex: pattern, $options: "i" } },
     ];
   }
 
-  if (category && typeof category === "string") {
-    filter.category = category;
+  if (category && typeof category === "string" && category.trim()) {
+    filter.category = { $regex: escapeRegex(category.trim()), $options: "i" };
   }
 
   if (tags && typeof tags === "string") {
     const tagArray = tags.split(",").map(t => t.trim()).filter(t => t); // "mern,react"
     if (tagArray.length > 0) {
-      filter.tags = { $in: tagArray };
+      filter.tags = { $in: tagArray.map((t) => new RegExp(`^${escapeRegex(t)}$`, "i")) };
     }
   }
 
@@ -42,11 +53,16 @@ const getCourses = async (query) => {
 
   const skip = (pageNum - 1) * limitNum;
 
+  const coursesQuery = Course.find(filter)
+    .sort(sortObj)
+    .skip(skip)
+    .limit(limitNum);
+
+  // the catalogue only needs module/lesson titles; admins manage the full content
+  if (viewer?.role !== "admin") coursesQuery.select(PUBLIC_COURSE_PROJECTION);
+
   const [courses, total] = await Promise.all([
-    Course.find(filter)
-      .sort(sortObj)
-      .skip(skip)
-      .limit(limitNum),
+    coursesQuery,
     Course.countDocuments(filter),
   ]);
 
@@ -58,10 +74,24 @@ const getCourses = async (query) => {
   };
 };
 
-const getCourseById = async (id) => {
+const getCourseById = async (id, viewer) => {
+  if (!isValidObjectId(id)) throw httpError(404, "Course not found");
+
   const course = await Course.findById(id);
-  if (!course) throw new Error("Course not found");
-  return course;
+  if (!course) throw httpError(404, "Course not found");
+
+  const canViewContent =
+    viewer?.role === "admin" ||
+    (viewer && (await Enrollment.exists({ student: viewer.id, course: id })));
+  if (canViewContent) return course;
+
+  // visitors and non-enrolled students only see the outline
+  const outline = course.toObject();
+  outline.syllabus = outline.syllabus.map((mod) => ({
+    ...mod,
+    lessons: mod.lessons.map(({ _id, title }) => ({ _id, title })),
+  }));
+  return outline;
 };
 
 module.exports = { getCourses, getCourseById };
